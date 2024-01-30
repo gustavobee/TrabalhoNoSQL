@@ -1,0 +1,430 @@
+---
+title: "Trabalho-NoSQL"
+output: 
+  html_document:
+    df_print: paged
+  runtime: shiny
+date: "2023-12-04"
+---
+
+```{r}
+# Trabalho de BigData e NoSQL realizado por Gustavo Bee e Luiz Eduardo 
+```
+
+# Instalando os pacotes
+```{r}
+install.packages("mongolite")
+install.packages("tidyverse")
+install.packages("ggplot2")
+```
+
+# Rodando os pacotes
+```{r}
+library(mongolite)
+library(ggplot2)
+library(tidyverse)
+```
+
+# Fazendo conexão com o banco de dados
+```{r}
+abelha <- mongo(collection="abelhas", db="Abelhas", url= "mongodb://root:mongo@localhost")
+```
+
+# Pedindo o login e a senha (Obs.: às vezes pede, às vezes não)
+```{r}
+abelha$authenticate("root", "mongo")
+```
+
+# Juntando os dados do banco em uma variável
+```{r}
+dados = abelha$find()
+```
+
+# Contando quantas variáveis tem no banco
+```{r}
+abelha$count()
+```
+
+# Vendo as cinco primeiras linhas do banco
+```{r}
+abelha$find(limit = 5)
+```
+
+# Descrição de cada variável
+```{r}
+#state: state within the USA. Note, other is a collection of states for privacy reasons. And the United States state is the average across all states.
+
+#num_colonies: number of honey bee colonies
+
+#max_colonies: max number of honey bee colonies for that quarter
+
+#lost_colonies: number of colonies that were lost during that quarter
+
+#percent_lost: percentage of honey bee colonies lost during that quarter
+
+#renovated_colonies: colonies that were 'requeened' or received new bees
+
+#percent_renovated: percentage of honey bee colonies that were renovated
+
+#quarter: Q1 is Jan to March, Q2 is April to June, Q3 is July to September, and Q4 is October to December
+
+#year: year between 2015 and 2022
+
+#varroa_mites: Percentage of colonies affected by a species of mite that affects honey bee populations
+
+#other_pests_and_parasites: Percentage of colonies affected by a collection of other harmful critters
+
+#diseases: Percentage of colonies affected by certain diseases
+
+#pesticides: Percentage of colonies affected by the use of certain pesticides
+
+#other: Percentage of colonies affected by an unlisted cause
+
+#unknown: Percentage of colonies affected by an unknown cause
+```
+
+# Trazendo dados estatísticos das variáveis
+```{r}
+summary(dados)
+```
+
+# Criação do gráfico da distribuição do número de colônias por estado
+```{r}
+aggregation_string_geographic <- '[
+  {
+    "$group": {
+      "_id": "$state",
+      "total_colonies": { "$sum": "$num_colonies" }
+    }
+  },
+  {
+    "$sort": { "total_colonies": -1 }
+  }
+]'
+
+result_geographic <- abelha$aggregate(aggregation_string_geographic)
+
+df_geographic <- as.data.frame(result_geographic)
+
+df_geographic_subset <- df_geographic[df_geographic$`_id` != "United States", ]
+
+df_geographic_subset <- head(df_geographic_subset, 15)
+
+ggplot(df_geographic_subset, aes(x = reorder(`_id`, -total_colonies), y = total_colonies)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(title = "Distribuição do Número de Colônias por Estado", x = "Estado", y = "Número de Colônias") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::number_format(scale = 1e-3, suffix = "K"))
+```
+
+# Calculando a média e o desvio padrão do número de colônias
+```{r}
+string_media_std <- '[
+  {
+    "$group": {
+      "_id": "$year",
+      "mean_num_colonies": { "$avg": "$num_colonies" },
+      "sd_num_colonies": { "$stdDevPop": "$num_colonies" }
+    }
+  }
+]'
+
+result <- abelha$aggregate(string_media_std)
+
+result
+```
+
+# Criação do gráfico de variação do número de colônias ao longo dos anos
+```{r}
+aggregation_string_colonies_over_years <- '[
+  {
+    "$group": {
+      "_id": "$year",
+      "avg_num_colonies": { "$avg": "$num_colonies" }
+    }
+  },
+  {
+    "$sort": { "_id": 1 }
+  }
+]'
+
+result_colonies_over_years <- abelha$aggregate(aggregation_string_colonies_over_years)
+
+df_colonies_over_years <- as.data.frame(result_colonies_over_years)
+
+df_colonies_over_years$`_id` <- as.numeric(as.character(df_colonies_over_years$`_id`))
+
+ggplot(df_colonies_over_years, aes(x = `_id`, y = avg_num_colonies)) +
+  geom_line(size=2,color = "blue") +
+  geom_point(size=4,color="red") +
+  labs(title = "Variação do Número de Colônias ao Longo dos Anos", x = "Ano", y = "Número Médio de Colônias") + theme_light()
+```
+
+# Calculando as perdas de colônias sendo agrupadas por ano
+```{r}
+pipeline <- '[{"$group": {"_id": "$year", "lost_colonies": {"$sum": "$lost_colonies"}}}]'
+
+agg_result <- abelha$aggregate(pipeline, options = '{"allowDiskUse": true}')
+
+# Convertendo o resultado para um dataframe para mostrar o resultado posteriormente
+grouped_year <- data.frame(year = agg_result$`_id`, lost_colonies = agg_result$lost_colonies)
+
+# Ordenando em ordem decrescente para mostrar as colônias que mais sofreram perdas
+highest_lost_colonies <- grouped_year %>%
+  arrange(desc(lost_colonies)) %>%
+  head(10)
+
+highest_lost_colonies
+```
+
+# Gráfico do número das colônias adicionadas por ano (1)
+# Gráfico das colônias perdidas por ano (2)
+# Gráfico da porcentagem das perdas por ano (3)
+```{r}
+# Colocando os dados no banco em outra variável
+df <- abelha$find()
+
+# Gráfico do total de colônias ao longo do tempo
+ggplot(df, aes(x = year, y = added_colonies)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Número das Colônias adicionadas por ano (2015-2022)", x = "Year", y = "Total Colonies") +
+  theme_minimal()
+
+# Gráfico do número das colônias perdidas por ano
+ggplot(df, aes(x = year, y = percent_lost)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Número das Colônias perdidas por ano (2015-2022)", x = "Year", y = "Total Colonies") +
+  theme_minimal()
+
+# Gráfico das porcentagem perdida ao decorrer dos anos
+ggplot(df, aes(x = factor(year), y = percent_lost)) +
+  geom_boxplot() +
+  labs(title = "Porcentagem das Perdas por ano (2015-2022)", x = "Year", y = "Percentage Lost") +
+  theme_minimal()
+```
+
+# Instalação de mais pacotes, esses servem para utilizar o shiny
+```{r}
+install.packages("shiny")
+```
+
+```{r}
+install.packages("shinythemes")
+```
+
+```{r}
+install.packages("DT")
+```
+
+```{r}
+install.packages("shinyjs")
+```
+
+# Abrindo os pacotes
+```{r}
+library(shiny)
+library(shinythemes)
+library(DT)
+library(shinyjs)
+```
+
+# Primeira aplicação
+```{r}
+ui <- fluidPage(
+  useShinyjs(),
+  theme = shinytheme("cerulean"),
+  titlePanel("Análise de Colônias de Abelhas"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("estado", "Selecione o Estado", choices = unique(dados$state)),
+      selectInput("variavel", "Selecione a Variável",
+                  choices = colnames(dados))
+    ),
+    mainPanel(
+      fluidRow(
+        column(width = 12, DTOutput("tabela_opcoes")),
+        column(width = 12, plotOutput("grafico")),
+        column(width = 12, DTOutput("tabela_dados"))
+      )
+    ),
+  )
+)
+
+server <- function(input, output) {
+  dados_filtrados <- reactive({
+    filter(dados, state == input$estado)
+  })
+
+  output$grafico <- renderPlot({
+    aggregation_string_colonies_over_years <- paste0('[
+      {
+        "$match": { "state": "', input$estado, '" }
+      },
+      {
+        "$group": {
+          "_id": "$year",
+          "avg_num_colonies": { "$avg": "$', input$variavel, '" }
+        }
+      },
+      {
+        "$sort": { "_id": 1 }
+      }
+    ]')
+
+    result_colonies_over_years <- abelha$aggregate(aggregation_string_colonies_over_years)
+    df_colonies_over_years <- as.data.frame(result_colonies_over_years)
+
+    # Convertendo o ano para uma variável contínua
+    df_colonies_over_years$`_id` <- as.numeric(as.character(df_colonies_over_years$`_id`))
+
+    # Criando o gráfico de linhas com gráfico de ponto
+    ggplot(df_colonies_over_years, aes(x = `_id`, y = avg_num_colonies)) +
+      geom_line(size=2, color = "blue") +
+      geom_point(size=4, color="red") +
+      labs(title = paste("Variação do Número de Colônias ao Longo dos Anos -", input$variavel),
+           x = "Ano", y = input$variavel) +
+      theme_light()
+  })
+  output$tabela_dados <- renderDT({
+    datatable(dados_filtrados(), options = list(pageLength = 10)) 
+  })
+  observe({
+    runjs("$('.datatable').css('margin-left', '0px');")
+  })
+}
+
+shinyApp(ui, server)
+```
+
+# Segunda aplicação
+```{r}
+ui <- fluidPage(
+  titlePanel("Correlação entre Variáveis", windowTitle = "Correlação Shiny App"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("var1", "Escolha a Variável 1", choices = colnames(dados)),
+      selectInput("var2", "Escolha a Variável 2", choices = colnames(dados)),
+      br(),
+      helpText("Selecione duas variáveis para visualizar a correlação."),
+      br(),
+    ),
+    mainPanel(
+      h4("Scatterplot e Correlação"),
+      plotOutput("scatterplot"),
+      tableOutput("correlation_table"),
+      hr(),
+      h4("Estatísticas Descritivas"),
+      verbatimTextOutput("descriptive_stats"),
+      style = "overflow-y: auto; max-height: calc(100vh - 80px);"
+    )
+  ),
+  theme = shinytheme("flatly")
+)
+
+server <- function(input, output, session) {
+  reset_selections <- eventReactive(input$reset, {
+    list(
+      var1 = NULL,
+      var2 = NULL
+    )
+  })
+
+  observe({
+    updateSelectInput(session, "var1", selected = reset_selections()$var1)
+    updateSelectInput(session, "var2", selected = reset_selections()$var2)
+  })
+
+  output$scatterplot <- renderPlot({
+    req(input$var1, input$var2)
+    
+    ggplot(dados, aes(x = !!sym(input$var1), y = !!sym(input$var2))) +
+      geom_point() +
+      labs(title = paste("Scatterplot entre", input$var1, "e", input$var2),
+           x = input$var1, y = input$var2) +
+      theme_minimal() +
+      scale_x_continuous(labels = function(x) format(x, scientific = FALSE)) +
+      scale_y_continuous(labels = function(x) format(x, scientific = FALSE))
+  })
+
+  output$correlation_table <- renderTable({
+    req(input$var1, input$var2)
+    correlation_value <- cor(dados[[input$var1]], dados[[input$var2]])
+    
+    data.frame(Variavel1 = input$var1, Variavel2 = input$var2, Correlacao = correlation_value)
+  })
+
+  output$descriptive_stats <- renderPrint({
+    req(input$var1, input$var2)
+    
+    mean_val_var1 <- mean(dados[[input$var1]])
+    median_val_var1 <- median(dados[[input$var1]])
+    sd_val_var1 <- sd(dados[[input$var1]])
+
+    mean_val_var2 <- mean(dados[[input$var2]])
+    median_val_var2 <- median(dados[[input$var2]])
+    sd_val_var2 <- sd(dados[[input$var2]])
+
+    cat("Estatísticas Descritivas para", input$var1, ":\n")
+    cat("Média:", mean_val_var1, "\n")
+    cat("Mediana:", median_val_var1, "\n")
+    cat("Desvio Padrão:", sd_val_var1, "\n")
+
+    cat("\nEstatísticas Descritivas para", input$var2, ":\n")
+    cat("Média:", mean_val_var2, "\n")
+    cat("Mediana:", median_val_var2, "\n")
+    cat("Desvio Padrão:", sd_val_var2, "\n")
+  })
+}
+
+shinyApp(ui, server)
+
+```
+
+# Terceira aplicação
+```{r}
+ui <- fluidPage(
+  titlePanel("Análise de Métricas por Ano"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("ano1", "Escolha o primeiro ano:", unique(dados$year)),
+      selectInput("ano2", "Escolha o segundo ano:", unique(dados$year)),
+      checkboxGroupInput("estatisticas", "Selecione as estatísticas:",
+                         choices = c("Média", "Mediana", "Desvio Padrão"),
+                         selected = "Média")
+    ),
+    
+    mainPanel(
+      DTOutput("table")
+    )
+  )
+)
+
+server <- function(input, output) {
+  summary_table <- reactive({
+    dados_filtrados <- dados %>%
+      filter(year %in% c(input$ano1, input$ano2))
+    
+    estatisticas <- lapply(input$estatisticas, function(estatistica) {
+      switch(estatistica,
+             "Média" = mean,
+             "Mediana" = median,
+             "Desvio Padrão" = sd)
+    })
+    
+    dados_filtrados %>%
+      group_by(year) %>%
+      summarise(across(where(is.numeric), estatisticas))
+  })
+  
+  output$table <- renderDT({
+    datatable(summary_table(), 
+              options = list(scrollX = TRUE)
+    )
+  })
+}
+
+shinyApp(ui, server)
+```
+
+
