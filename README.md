@@ -1,1 +1,1 @@
-Projeto no qual utilizo a linguagem de programaçã R juntamente com o banco de dados MongoDB para fazer análise de dados.
+Projeto no qual utilizo a linguagem de programação R juntamente com o banco de dados MongoDB para fazer análise de dados.
